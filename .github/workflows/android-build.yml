@@ -40,6 +40,8 @@ jobs:
         with:
           gradle-version: 8.5
           build-root-directory: android
+          gradle-wrapper-cache-enabled: false
+          gradle-wrapper-validation: false
 
       - name: Build with Gradle
         run: |

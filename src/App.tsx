@@ -23,6 +23,18 @@ import {
 } from 'lucide-react';
 import { Dhikr, INITIAL_DHIKRS, RecognitionMode } from './types';
 
+const parseArabicNumbers = (str: string | number): number => {
+  if (typeof str === 'number') return str;
+  if (!str) return 0;
+  const englishNumbers = str.replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d).toString())
+                            .replace(/[۰-۹]/g, d => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d).toString());
+  return parseInt(englishNumbers, 10) || 0;
+};
+
+const formatNumber = (num: number): string => {
+  return new Intl.NumberFormat('en-US', { useGrouping: false }).format(num);
+};
+
 export default function App() {
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState('');
@@ -717,7 +729,7 @@ export default function App() {
           animate={{ scale: 1 }}
           className="text-6xl font-bold text-gold"
         >
-          {totalCount}
+          {formatNumber(totalCount)}
         </motion.p>
         
         <AnimatePresence>
@@ -785,10 +797,10 @@ export default function App() {
             className="bg-card-bg rounded-3xl p-6 flex flex-col items-center justify-center border border-white/5 relative group h-48"
           >
             <div className="absolute top-4 right-4 w-2 h-2 rounded-full" style={{ backgroundColor: dhikr.color }} />
-            <p className="text-4xl font-bold mb-4" style={{ color: dhikr.color }}>{dhikr.count}</p>
+            <p className="text-4xl font-bold mb-4" style={{ color: dhikr.color }}>{formatNumber(dhikr.count)}</p>
             <p className="text-lg font-medium text-gray-300">{dhikr.text}</p>
             <div className="absolute bottom-4 text-[10px] text-gray-500">
-              {dhikr.count} / {dhikr.target}
+              {formatNumber(dhikr.count)} / {formatNumber(dhikr.target)}
             </div>
           </motion.button>
         ))}
@@ -824,7 +836,7 @@ export default function App() {
             {modelLoading ? (
               <div className="relative w-full h-full flex flex-col items-center justify-center">
                 <Loader2 className="text-white animate-spin mb-1" size={24} />
-                <span className="text-[10px] font-bold text-white">{modelProgress}%</span>
+                <span className="text-[10px] font-bold text-white">{formatNumber(modelProgress)}%</span>
                 <div className="absolute bottom-0 left-0 h-1 bg-white/30 transition-all duration-300" style={{ width: `${modelProgress}%` }} />
               </div>
             ) : isListening ? (
@@ -1007,7 +1019,7 @@ export default function App() {
                       <div className="w-3 h-3 rounded-full" style={{ backgroundColor: dhikr.color }} />
                       <div>
                         <p className="font-medium">{dhikr.text}</p>
-                        <p className="text-xs text-gray-500">الهدف: {dhikr.target}</p>
+                        <p className="text-xs text-gray-500">الهدف: {formatNumber(dhikr.target)}</p>
                       </div>
                     </div>
                     <div className="flex gap-2">
@@ -1047,7 +1059,7 @@ export default function App() {
                 </div>
                 <div>
                   <label className="text-xs text-gray-500 block mb-2">الهدف</label>
-                  <input type="number" value={editingDhikr.target} onChange={(e) => setEditingDhikr({...editingDhikr, target: parseInt(e.target.value) || 0})} className="w-full bg-white/5 border border-white/10 rounded-xl p-4 text-center text-lg focus:outline-none focus:border-gold" />
+                  <input type="tel" dir="ltr" value={editingDhikr.target || ''} onChange={(e) => setEditingDhikr({...editingDhikr, target: parseArabicNumbers(e.target.value)})} className="w-full bg-white/5 border border-white/10 rounded-xl p-4 text-center text-lg focus:outline-none focus:border-gold font-sans" />
                 </div>
                 <div>
                   <label className="text-xs text-gray-500 block mb-2">اختر لوناً</label>

@@ -111,6 +111,7 @@ export default function App() {
   const normalizeArabic = (text: string) => {
     if (!text) return '';
     let n = text
+      .toLowerCase() // Convert to lowercase for English support
       .replace(/[\u064B-\u0652]/g, '') // Remove Tashkeel
       .replace(/[أإآ]/g, 'ا')
       .replace(/ة/g, 'ه')
@@ -119,8 +120,8 @@ export default function App() {
       .replace(/ئ/g, 'ي')
       .replace(/لله/g, 'الله');
     
-    // Remove non-Arabic characters
-    n = n.replace(/[^\u0621-\u064A\s]/g, ' ');
+    // Allow Arabic and English characters, remove others
+    n = n.replace(/[^a-z\u0621-\u064A\s]/g, ' ');
     
     // Handle common Arabic ASR misrecognitions:
     // 1. Remove spaces after 'ال' (Al-) prefix
@@ -353,7 +354,7 @@ export default function App() {
       setModelProgress(0);
       addToLog('🔄 جاري تحميل محرك "بدون إنترنت"...');
       
-      const modelUrl = 'https://alphacephei.com/vosk/models/vosk-model-small-ar-0.3.tar.gz';
+      const modelUrl = '/vosk-model-small-ar-0.3.tar.gz';
       
       // Fetch with progress
       const response = await fetch(modelUrl, { signal });

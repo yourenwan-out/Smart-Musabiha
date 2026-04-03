@@ -41,11 +41,15 @@ jobs:
           gradle-version: 8.5
           build-root-directory: android
           gradle-wrapper-cache-enabled: false
-          gradle-wrapper-validation: false
 
       - name: Build with Gradle
         run: |
           cd android
+          # Remove the existing wrapper files to force regeneration
+          rm -rf gradle/wrapper/gradle-wrapper.jar gradle/wrapper/gradle-wrapper.properties
+          # Regenerate a clean wrapper
+          ./gradlew wrapper --gradle-version 8.5
+          # Build
           chmod +x gradlew
           ./gradlew assembleDebug
         

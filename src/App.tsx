@@ -14,9 +14,12 @@ import {
   Volume2,
   VolumeX,
   Eye,
-  Loader2
+  Loader2,
+  Wifi,
+  WifiOff,
+  Zap
 } from 'lucide-react';
-import { Dhikr, INITIAL_DHIKRS } from './types';
+import { Dhikr, INITIAL_DHIKRS, RecognitionMode } from './types';
 
 export default function App() {
   const [isListening, setIsListening] = useState(false);
@@ -24,13 +27,24 @@ export default function App() {
   const [interimTranscript, setInterimTranscript] = useState('');
   const [audioLevel, setAudioLevel] = useState<number[]>(new Array(5).fill(0));
   const [showSettings, setShowSettings] = useState(false);
+  const [showCustomization, setShowCustomization] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showPermissionError, setShowPermissionError] = useState(false);
   const [editingDhikr, setEditingDhikr] = useState<Dhikr | null>(null);
   const [isAddingNew, setIsAddingNew] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
+  const [developerMode, setDeveloperMode] = useState(() => localStorage.getItem('developerMode') === 'true');
+  const [vibrationEnabled, setVibrationEnabled] = useState(() => localStorage.getItem('vibrationEnabled') !== 'false');
   const [modelLoading, setModelLoading] = useState(false);
+  const [modelProgress, setModelProgress] = useState(0);
   const [modelReady, setModelReady] = useState(false);
+  const [showVoskPrompt, setShowVoskPrompt] = useState(false);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [recognitionMode, setRecognitionMode] = useState<RecognitionMode>(() => {
+    const saved = localStorage.getItem('recognitionMode');
+    return (saved as RecognitionMode) || 'auto';
+  });
+  const [activeEngine, setActiveEngine] = useState<'google' | 'vosk' | null>(null);
   const [debugInfo, setDebugInfo] = useState({
     status: 'متوقف',
     lastEvent: 'لا يوجد',
@@ -66,171 +80,8 @@ export default function App() {
     return saved ? JSON.parse(saved) : INITIAL_DHIKRS;
   });
 
-  // Arabic normalization helper
-  const normalizeArabic = (text: string) => {
-    if (!text) return '';
-    return text
-      .toLowerCase()
-      .replace(/[أإآ]/g, 'ا')
-      .replace(/ة/g, 'ه')
-      .replace(/ى/g, 'ي')
-      .replace(/[ؤ]/g, 'و')
-      .replace(/[ئ]/g, 'ي')
-      .replace(/[\u064B-\u0652]/g, '') // Remove Tashkeel
-      .replace(/[^\u0621-\u064A\s]/g, '')
-      .replace(/\s+/g, ' ')
-      .trim();
-  };
-
-  const handleIncrement = useCallback((id: string) => {
-    setDhikrs(prev => prev.map(d => {
-      if (d.id === id) {
-        if (navigator.vibrate) navigator.vibrate(50);
-        return { ...d, count: d.count + 1 };
-      }
-      return d;
-    }));
-  }, []);
-
-  const [debugLog, setDebugLog] = useState<string[]>([]);
-  
-  const addToLog = (msg: string) => {
-    setDebugLog(prev => [new Date().toLocaleTimeString() + ': ' + msg, ...prev].slice(0, 15));
-  };
-
-  // Vosk Speech Recognition Setup
-  useEffect(() => {
-    const initVosk = async () => {
-      if (modelReady || modelLoading) return;
-      
-      try {
-        setModelLoading(true);
-        addToLog('🔄 جاري تحميل موديل Vosk (العربية)...');
-        
-        // Small Arabic model URL
-        const modelUrl = 'https://alphacephei.com/vosk/models/vosk-model-small-ar-0.3.tar.gz';
-        const model = await createModel(modelUrl);
-        modelRef.current = model;
-        
-        setModelReady(true);
-        setModelLoading(false);
-        addToLog('✅ موديل Vosk جاهز للعمل');
-      } catch (err: any) {
-        console.error('Vosk init error:', err);
-        addToLog(`❌ خطأ في تحميل الموديل: ${err.message}`);
-        setModelLoading(false);
-      }
-    };
-
-    if (isListening && !modelReady) {
-      initVosk();
-    }
-  }, [isListening, modelReady, modelLoading]);
-
-  useEffect(() => {
-    const startVoskRecognition = async () => {
-      if (!modelRef.current || !isListening) return;
-
-      try {
-        addToLog('▶️ بدء التعرف عبر Vosk...');
-        
-        if (!audioContextRef.current) {
-          audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-        }
-        
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        streamRef.current = stream;
-        
-        const source = audioContextRef.current.createMediaStreamSource(stream);
-        const recognizer = new modelRef.current.KaldiRecognizer(audioContextRef.current.sampleRate);
-        recognizerRef.current = recognizer;
-        
-        recognizer.on('result', (message: any) => {
-          const result = message.result;
-          if (result && result.text) {
-            processVoskResult(result.text, true);
-          }
-        });
-        
-        recognizer.on('partialresult', (message: any) => {
-          const partial = message.result.partial;
-          if (partial) {
-            processVoskResult(partial, false);
-          }
-        });
-
-        const processor = audioContextRef.current.createScriptProcessor(4096, 1, 1);
-        processorRef.current = processor;
-        
-        processor.onaudioprocess = (event) => {
-          if (!isListening) return;
-          const data = event.inputBuffer.getChannelData(0);
-          recognizer.acceptWaveform(data);
-        };
-
-        source.connect(processor);
-        processor.connect(audioContextRef.current.destination);
-        
-        setDebugInfo(prev => ({ ...prev, status: 'نشط', lastEvent: 'vosk_started' }));
-      } catch (err: any) {
-        addToLog(`❌ خطأ في تشغيل Vosk: ${err.message}`);
-        setIsListening(false);
-      }
-    };
-
-    const processVoskResult = (text: string, isFinal: boolean) => {
-      const normalized = normalizeArabic(text);
-      if (isFinal) {
-        setTranscript(prev => prev + ' ' + text);
-        setInterimTranscript('');
-      } else {
-        setInterimTranscript(text);
-      }
-
-      if (normalized && normalized !== lastProcessedTextRef.current) {
-        addToLog(`🎤 Vosk: ${text.slice(-15)}...`);
-        
-        dhikrs.forEach(dhikr => {
-          const keywords = [dhikr.text, ...dhikr.keywords];
-          let maxMatchesInCurrent = 0;
-
-          keywords.forEach(kw => {
-            const normKw = normalizeArabic(kw);
-            if (!normKw || normKw.length < 2) return;
-
-            const regex = new RegExp(normKw, 'g');
-            const matches = (normalized.match(regex) || []).length;
-            if (matches > maxMatchesInCurrent) maxMatchesInCurrent = matches;
-          });
-
-          const previousMax = sessionCountsRef.current[dhikr.id] || 0;
-          
-          if (maxMatchesInCurrent > previousMax) {
-            const diff = maxMatchesInCurrent - previousMax;
-            for (let j = 0; j < diff; j++) {
-              handleIncrement(dhikr.id);
-              addToLog(`✨ تم عد: ${dhikr.text}`);
-            }
-            sessionCountsRef.current[dhikr.id] = maxMatchesInCurrent;
-          }
-        });
-        lastProcessedTextRef.current = normalized;
-      }
-    };
-
-    if (isListening && modelReady) {
-      startVoskRecognition();
-    } else if (!isListening) {
-      stopVoskRecognition();
-    }
-
-    return () => {
-      stopVoskRecognition();
-    };
-  }, [isListening, modelReady, dhikrs, handleIncrement]);
-
-  const stopVoskRecognition = () => {
-    addToLog('⏹️ إيقاف Vosk...');
+  const stopAllEngines = useCallback(() => {
+    try { recognitionRef.current?.stop(); } catch (e) {}
     if (processorRef.current) {
       processorRef.current.disconnect();
       processorRef.current = null;
@@ -243,8 +94,371 @@ export default function App() {
       streamRef.current.getTracks().forEach(track => track.stop());
       streamRef.current = null;
     }
-    setDebugInfo(prev => ({ ...prev, status: 'متوقف', lastEvent: 'vosk_stopped' }));
+  }, []);
+
+  // Arabic normalization helper
+  const normalizeArabic = (text: string) => {
+    if (!text) return '';
+    let n = text
+      .replace(/[\u064B-\u0652]/g, '') // Remove Tashkeel
+      .replace(/[أإآ]/g, 'ا')
+      .replace(/ة/g, 'ه')
+      .replace(/ى/g, 'ي')
+      .replace(/ؤ/g, 'و')
+      .replace(/ئ/g, 'ي')
+      .replace(/لله/g, 'الله');
+    
+    // Remove non-Arabic characters
+    n = n.replace(/[^\u0621-\u064A\s]/g, ' ');
+    // Collapse spaces
+    n = n.replace(/\s+/g, ' ').trim();
+    
+    // Tokenize common phrases for robust matching
+    n = n.replace(/لا اله/g, 'لااله');
+    n = n.replace(/الا الله/g, 'الاالله');
+    n = n.replace(/لااله الاالله/g, 'لاالهالاالله');
+    n = n.replace(/سبحان الله/g, 'سبحانالله');
+    n = n.replace(/الحمد لله/g, 'الحمدلله');
+    n = n.replace(/الله اكبر/g, 'اللهاكبر');
+    
+    return n;
   };
+
+  const handleIncrement = useCallback((id: string) => {
+    setDhikrs(prev => prev.map(d => {
+      if (d.id === id) {
+        if (vibrationEnabled && navigator.vibrate) navigator.vibrate(50);
+        return { ...d, count: d.count + 1, lastIncrement: Date.now() };
+      }
+      return d;
+    }));
+  }, [vibrationEnabled]);
+
+  const [debugLog, setDebugLog] = useState<string[]>([]);
+  
+  const addToLog = (msg: string) => {
+    setDebugLog(prev => [new Date().toLocaleTimeString() + ': ' + msg, ...prev].slice(0, 15));
+  };
+
+  // Monitor online status
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      addToLog('🌐 متصل بالإنترنت');
+    };
+    const handleOffline = () => {
+      setIsOnline(false);
+      addToLog('📡 غير متصل بالإنترنت');
+    };
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  // Save settings
+  useEffect(() => {
+    localStorage.setItem('recognitionMode', recognitionMode);
+    localStorage.setItem('developerMode', String(developerMode));
+    localStorage.setItem('vibrationEnabled', String(vibrationEnabled));
+  }, [recognitionMode, developerMode, vibrationEnabled]);
+
+  const dhikrsRef = useRef(dhikrs);
+  useEffect(() => {
+    dhikrsRef.current = dhikrs;
+  }, [dhikrs]);
+
+  const lastCountTimeRef = useRef<Record<string, number>>({});
+
+  // Unified Transcript Processing
+  const processTranscript = useCallback((text: string, source: string) => {
+    const normalized = normalizeArabic(text);
+    if (!normalized) return;
+
+    // Prevent processing the exact same transcript twice
+    if (normalized === lastProcessedTextRef.current) return;
+    lastProcessedTextRef.current = normalized;
+
+    const now = Date.now();
+    const COOLDOWN = 300; // Balanced cooldown for speed and accuracy
+
+    addToLog(`🎤 ${source}: ${text.slice(-20)}...`);
+    
+    dhikrsRef.current.forEach(dhikr => {
+      const keywords = [dhikr.text, ...dhikr.keywords];
+      let maxMatchesInCurrent = 0;
+
+      keywords.forEach(kw => {
+        const normKw = normalizeArabic(kw);
+        if (!normKw || normKw.length < 2) return;
+
+        // Optimized matching: Use aggressive normalization for speed, 
+        // but ensure we match the phrase correctly
+        const escapedKw = normKw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(escapedKw, 'g');
+        
+        const matches = (normalized.match(regex) || []).length;
+        if (matches > maxMatchesInCurrent) maxMatchesInCurrent = matches;
+      });
+
+      const previousMax = sessionCountsRef.current[dhikr.id] || 0;
+      
+      if (maxMatchesInCurrent > previousMax) {
+        const lastTime = lastCountTimeRef.current[dhikr.id] || 0;
+        
+        // Only increment if we haven't counted this dhikr too recently
+        // This helps with "stuttering" transcripts like "سبحان سبحان الله"
+        if (now - lastTime > COOLDOWN) {
+          const diff = maxMatchesInCurrent - previousMax;
+          
+          // Logic: If the transcript suddenly has many more matches, 
+          // it's likely an engine jump or stutter. We count at most 1 per update
+          // unless the jump is very large (e.g. user was silent for a long time)
+          const incrementAmount = diff > 0 ? 1 : 0;
+          
+          if (incrementAmount > 0) {
+            handleIncrement(dhikr.id);
+            addToLog(`✨ تم عد: ${dhikr.text}`);
+            lastCountTimeRef.current[dhikr.id] = now;
+            // Update session count to reflect we've handled this many matches
+            sessionCountsRef.current[dhikr.id] = previousMax + incrementAmount;
+          }
+        }
+      }
+    });
+  }, [handleIncrement]);
+
+  // Google Speech Recognition Logic
+  useEffect(() => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
+
+    if (isListening && activeEngine === 'google') {
+      if (recognitionRef.current) return; // Already initialized
+
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'ar-SA';
+      
+      recognition.onstart = () => {
+        setDebugInfo(prev => ({ ...prev, status: 'نشط (بإنترنت)', lastEvent: 'google_start' }));
+        addToLog('✅ محرك "بإنترنت" بدأ العمل');
+        setActiveEngine('google');
+      };
+
+      recognition.onend = () => {
+        // Only restart if we haven't manually cleared the ref (which stopAllEngines does)
+        if (isListening && activeEngine === 'google' && recognitionRef.current === recognition) {
+          addToLog('🔄 إعادة تشغيل محرك "بإنترنت"...');
+          try { 
+            recognition.start(); 
+          } catch (e) {
+            // If it fails to restart immediately, try again in a bit
+            setTimeout(() => {
+              if (isListening && activeEngine === 'google' && recognitionRef.current === recognition) {
+                try { recognition.start(); } catch (err) {}
+              }
+            }, 1000);
+          }
+        }
+      };
+
+      recognition.onerror = (event: any) => {
+        if (event.error === 'aborted') return; // Ignore manual aborts
+        addToLog(`❌ خطأ في محرك "بإنترنت": ${event.error}`);
+        if (event.error === 'network') {
+          addToLog('📡 فشل الاتصال.. جاري التحويل لمحرك "بدون إنترنت"');
+        }
+      };
+
+      recognition.onresult = (event: any) => {
+        if (event.results.length < lastResultsLengthRef.current) {
+          sessionCountsRef.current = {};
+          lastProcessedTextRef.current = '';
+        }
+        lastResultsLengthRef.current = event.results.length;
+
+        let fullTranscript = '';
+        let currentInterim = '';
+        for (let i = 0; i < event.results.length; ++i) {
+          const part = event.results[i][0].transcript;
+          fullTranscript += part;
+          if (!event.results[i].isFinal) currentInterim += part;
+        }
+        setTranscript(fullTranscript);
+        setInterimTranscript(currentInterim);
+        processTranscript(fullTranscript, 'بإنترنت');
+      };
+
+      recognitionRef.current = recognition;
+      try { recognition.start(); } catch (e) {}
+    } else {
+      // Cleanup if not active
+      if (recognitionRef.current) {
+        try { recognitionRef.current.stop(); } catch (e) {}
+        recognitionRef.current = null;
+      }
+    }
+  }, [isListening, activeEngine, processTranscript]);
+
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Vosk Speech Recognition Logic
+  const initVoskModel = useCallback(async () => {
+    if (modelReady || modelLoading) return;
+    
+    // Create new abort controller
+    abortControllerRef.current = new AbortController();
+    const signal = abortControllerRef.current.signal;
+
+    try {
+      setModelLoading(true);
+      setModelProgress(0);
+      addToLog('🔄 جاري تحميل محرك "بدون إنترنت"...');
+      
+      const modelUrl = 'https://alphacephei.com/vosk/models/vosk-model-small-ar-0.3.tar.gz';
+      
+      // Fetch with progress
+      const response = await fetch(modelUrl, { signal });
+      if (!response.ok) throw new Error('فشل تحميل الموديل');
+      
+      const contentLength = response.headers.get('content-length');
+      const total = contentLength ? parseInt(contentLength, 10) : 0;
+      let loaded = 0;
+      
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('فشل قراءة بيانات الموديل');
+      
+      const chunks: Uint8Array[] = [];
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        loaded += value.length;
+        if (total) {
+          const progress = Math.round((loaded / total) * 100);
+          setModelProgress(progress);
+        }
+      }
+      
+      const blob = new Blob(chunks);
+      const model = await createModel(URL.createObjectURL(blob));
+      
+      modelRef.current = model;
+      setModelReady(true);
+      setModelLoading(false);
+      setModelProgress(100);
+      addToLog('✅ محرك "بدون إنترنت" جاهز');
+      
+      if (isListening) {
+        setActiveEngine('vosk');
+      }
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        addToLog('⏹️ تم إلغاء تحميل المحرك');
+      } else {
+        addToLog(`❌ خطأ في محرك "بدون إنترنت": ${err.message}`);
+      }
+      setModelLoading(false);
+      setModelProgress(0);
+      setIsListening(false);
+    }
+  }, [modelReady, modelLoading, isListening]);
+
+  useEffect(() => {
+    const startVosk = async () => {
+      if (!modelRef.current || activeEngine !== 'vosk' || recognizerRef.current) return;
+      try {
+        if (!audioContextRef.current) {
+          audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+        }
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        streamRef.current = stream;
+        const source = audioContextRef.current.createMediaStreamSource(stream);
+        const recognizer = new modelRef.current.KaldiRecognizer(audioContextRef.current.sampleRate);
+        recognizerRef.current = recognizer;
+        
+        recognizer.on('result', (message: any) => {
+          if (message.result?.text) {
+            setTranscript(prev => {
+              const newFull = (prev + ' ' + message.result.text).trim();
+              processTranscript(newFull, 'بدون إنترنت');
+              return newFull;
+            });
+            setInterimTranscript('');
+          }
+        });
+        
+        recognizer.on('partialresult', (message: any) => {
+          if (message.result?.partial) {
+            setInterimTranscript(message.result.partial);
+            setTranscript(prev => {
+              const newFull = (prev + ' ' + message.result.partial).trim();
+              processTranscript(newFull, 'بدون إنترنت (P)');
+              return prev; // Don't update permanent transcript with partial
+            });
+          }
+        });
+
+        const processor = audioContextRef.current.createScriptProcessor(4096, 1, 1);
+        processorRef.current = processor;
+        processor.onaudioprocess = (event) => {
+          if (activeEngine === 'vosk') {
+            recognizer.acceptWaveform(event.inputBuffer.getChannelData(0));
+          }
+        };
+        source.connect(processor);
+        processor.connect(audioContextRef.current.destination);
+        setDebugInfo(prev => ({ ...prev, status: 'نشط (بدون إنترنت)', lastEvent: 'vosk_started' }));
+        addToLog('✅ محرك "بدون إنترنت" بدأ العمل');
+      } catch (err: any) {
+        addToLog(`❌ خطأ تشغيل محرك "بدون إنترنت": ${err.message}`);
+        setIsListening(false);
+      }
+    };
+
+    if (isListening && activeEngine === 'vosk' && modelReady) {
+      startVosk();
+    }
+  }, [isListening, activeEngine, modelReady, processTranscript]);
+
+  // Engine Switching Logic
+  useEffect(() => {
+    if (!isListening) {
+      stopAllEngines();
+      setActiveEngine(null);
+      return;
+    }
+
+    const determineEngine = () => {
+      if (recognitionMode === 'google') return 'google';
+      if (recognitionMode === 'vosk') return 'vosk';
+      return isOnline ? 'google' : 'vosk';
+    };
+
+    const targetEngine = determineEngine();
+    
+    if (targetEngine !== activeEngine) {
+      // If we are switching away from vosk while it's loading, abort the load
+      if (activeEngine === 'vosk' && modelLoading && targetEngine !== 'vosk') {
+        abortControllerRef.current?.abort();
+      }
+
+      if (targetEngine === 'vosk' && !modelReady) {
+        if (!modelLoading) {
+          stopAllEngines();
+          setShowVoskPrompt(true);
+          setIsListening(false);
+        }
+      } else {
+        stopAllEngines();
+        setActiveEngine(targetEngine);
+      }
+    }
+  }, [isListening, recognitionMode, isOnline, modelReady, modelLoading, stopAllEngines]);
 
   const toggleListening = () => {
     if (isListening) {
@@ -255,12 +469,18 @@ export default function App() {
       sessionCountsRef.current = {};
       lastResultsLengthRef.current = 0;
     } else {
-      setIsListening(true);
-      setTranscript('');
-      setInterimTranscript('');
-      lastProcessedTextRef.current = '';
-      sessionCountsRef.current = {};
-      lastResultsLengthRef.current = 0;
+      // Check if we need Vosk and if it's ready
+      const willUseVosk = recognitionMode === 'vosk' || (recognitionMode === 'auto' && !isOnline);
+      if (willUseVosk && !modelReady) {
+        setShowVoskPrompt(true);
+      } else {
+        setIsListening(true);
+        setTranscript('');
+        setInterimTranscript('');
+        lastProcessedTextRef.current = '';
+        sessionCountsRef.current = {};
+        lastResultsLengthRef.current = 0;
+      }
     }
   };
 
@@ -385,17 +605,36 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-dark-bg text-white font-sans flex flex-col p-6 dir-rtl" dir="rtl">
-      <header className="flex justify-between items-center mb-8">
-        <button 
-          onClick={() => setShowDebug(!showDebug)}
-          className={`p-2 rounded-lg transition-colors ${showDebug ? 'bg-gold text-dark-bg' : 'bg-white/5 text-gray-500'}`}
-        >
-          <Eye size={20} />
-        </button>
-        <div className="bg-card-bg/50 px-8 py-4 rounded-2xl border border-white/5">
-          <h1 className="text-gold text-2xl font-bold tracking-wide">المسبحة الصوتية الذكية</h1>
+      <header className="flex items-center justify-between gap-4 mb-10">
+        <div className="flex-1 flex justify-start">
+          {developerMode && (
+            <button 
+              onClick={() => setShowDebug(!showDebug)}
+              className={`w-12 h-12 rounded-2xl transition-all flex items-center justify-center border ${
+                showDebug 
+                  ? 'bg-gold text-dark-bg border-gold shadow-lg shadow-gold/20' 
+                  : 'bg-card-bg/40 text-gray-500 border-white/5 hover:bg-white/5'
+              }`}
+            >
+              <Eye size={20} />
+            </button>
+          )}
         </div>
-        <div className="w-10" />
+        
+        <div className="bg-card-bg/40 px-6 py-3 rounded-2xl border border-white/5 backdrop-blur-md shadow-xl">
+          <h1 className="text-gold text-xl md:text-2xl font-black tracking-tight text-center leading-tight">
+            المسبحة الصوتية <span className="text-white/90 font-medium block text-xs mt-1 tracking-[0.2em] uppercase opacity-60">الذكية</span>
+          </h1>
+        </div>
+
+        <div className="flex-1 flex justify-end">
+          <button 
+            onClick={() => setShowSettings(true)}
+            className="w-12 h-12 bg-card-bg/40 backdrop-blur-md rounded-2xl flex items-center justify-center border border-white/5 text-gray-400 hover:bg-white/5 transition-all hover:text-white"
+          >
+            <Settings size={20} />
+          </button>
+        </div>
       </header>
 
       <motion.div 
@@ -458,11 +697,16 @@ export default function App() {
         {dhikrs.map((dhikr) => (
           <motion.button
             key={dhikr.id}
+            animate={{ 
+              scale: (dhikr as any).lastIncrement && (Date.now() - (dhikr as any).lastIncrement < 300) ? [1, 1.1, 1] : 1
+            }}
+            transition={{ duration: 0.3 }}
             whileTap={{ scale: 0.95 }}
             onContextMenu={(e) => {
               e.preventDefault();
               setIsAddingNew(false);
               setEditingDhikr(dhikr);
+              setShowCustomization(true);
             }}
             onClick={() => handleIncrement(dhikr.id)}
             className="bg-card-bg rounded-3xl p-6 flex flex-col items-center justify-center border border-white/5 relative group h-48"
@@ -479,10 +723,11 @@ export default function App() {
 
       <div className="fixed bottom-0 left-0 right-0 p-8 flex justify-between items-center bg-gradient-to-t from-dark-bg via-dark-bg/90 to-transparent">
         <button 
-          onClick={() => setShowSettings(true)}
-          className="w-14 h-14 bg-card-bg rounded-2xl flex items-center justify-center border border-white/10"
+          onClick={() => setShowCustomization(true)}
+          className="w-14 h-14 bg-card-bg rounded-2xl flex items-center justify-center border border-white/10 text-gray-400 hover:text-white transition-all"
+          title="تخصيص الأذكار"
         >
-          <Settings className="text-gray-400" size={24} />
+          <Edit3 size={24} />
         </button>
 
         <div className="relative">
@@ -504,7 +749,11 @@ export default function App() {
             className={`w-20 h-20 rounded-full flex flex-col items-center justify-center shadow-2xl transition-all relative overflow-hidden ${modelLoading ? 'bg-gray-600 cursor-not-allowed' : 'bg-gold shadow-gold/20'}`}
           >
             {modelLoading ? (
-              <Loader2 className="text-white animate-spin" size={32} />
+              <div className="relative w-full h-full flex flex-col items-center justify-center">
+                <Loader2 className="text-white animate-spin mb-1" size={24} />
+                <span className="text-[10px] font-bold text-white">{modelProgress}%</span>
+                <div className="absolute bottom-0 left-0 h-1 bg-white/30 transition-all duration-300" style={{ width: `${modelProgress}%` }} />
+              </div>
             ) : isListening ? (
               <div className="flex items-center gap-1">
                 {[1, 2, 3, 4, 5].map((i) => (
@@ -520,8 +769,23 @@ export default function App() {
               <Mic className="text-dark-bg" size={32} />
             )}
           </motion.button>
-          <p className="absolute -bottom-8 left-1/2 -translate-x-1/2 whitespace-nowrap text-xs text-gray-400">
-            {isListening ? 'جاري الاستماع...' : 'اضغط للتسبيح بالصوت'}
+          <p className="absolute -bottom-8 left-1/2 -translate-x-1/2 whitespace-nowrap text-xs text-gray-400 flex items-center gap-2">
+            {isListening ? (
+              <>
+                <span>جاري الاستماع</span>
+                {recognitionMode === 'auto' ? (
+                  <Zap size={14} className="text-gold" />
+                ) : activeEngine === 'google' ? (
+                  <Wifi size={14} className="text-gold" />
+                ) : (
+                  <WifiOff size={14} className="text-gold" />
+                )}
+              </>
+            ) : modelLoading ? (
+              <span className="text-gold animate-pulse">جاري التحميل...</span>
+            ) : (
+              'اضغط للتسبيح بالصوت'
+            )}
           </p>
         </div>
 
@@ -550,8 +814,116 @@ export default function App() {
               className="fixed bottom-0 left-0 right-0 bg-card-bg rounded-t-[40px] z-50 p-8 max-h-[80vh] overflow-y-auto border-t border-white/10"
             >
               <div className="flex justify-between items-center mb-8">
-                <h2 className="text-xl font-bold">تخصيص الأذكار</h2>
+                <h2 className="text-xl font-bold">الإعدادات العامة</h2>
                 <button onClick={() => setShowSettings(false)} className="p-2 bg-white/5 rounded-full">
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="space-y-6">
+                {/* Recognition Mode Settings */}
+                <div className="bg-white/5 p-4 rounded-2xl border border-white/5 space-y-4">
+                  <h3 className="text-white font-medium flex items-center gap-2">
+                    <Zap size={18} className="text-gold" />
+                    محرك التعرف على الصوت
+                  </h3>
+                  <div className="grid grid-cols-1 gap-2">
+                    {[
+                      { id: 'auto', label: 'تلقائي (ذكي)', icon: Zap, desc: 'يستخدم محرك الإنترنت عند توفره، والمحرك المحلي عند انقطاعه' },
+                      { id: 'google', label: 'بإنترنت', icon: Wifi, desc: 'دقة عالية جداً، يحتاج إنترنت مستمر' },
+                      { id: 'vosk', label: 'بدون إنترنت', icon: WifiOff, desc: 'يعمل بدون إنترنت تماماً، يحتاج تحميل موديل' },
+                    ].map((mode) => (
+                      <button
+                        key={mode.id}
+                        onClick={() => setRecognitionMode(mode.id as RecognitionMode)}
+                        className={`flex items-start gap-3 p-3 rounded-xl border transition-all text-right ${
+                          recognitionMode === mode.id 
+                            ? 'bg-gold/10 border-gold text-gold' 
+                            : 'bg-white/5 border-transparent text-gray-400 hover:bg-white/10'
+                        }`}
+                      >
+                        <mode.icon size={20} className="mt-1 shrink-0" />
+                        <div>
+                          <div className="font-medium">{mode.label}</div>
+                          <div className="text-xs opacity-60">{mode.desc}</div>
+                        </div>
+                        {recognitionMode === mode.id && <Check size={16} className="mr-auto mt-1" />}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Vibration Toggle */}
+                <div className="bg-white/5 p-4 rounded-2xl border border-white/5 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-gold/10 rounded-xl flex items-center justify-center">
+                      <Volume2 className="text-gold" size={20} />
+                    </div>
+                    <div>
+                      <p className="font-medium">الاهتزاز عند العد</p>
+                      <p className="text-xs text-gray-500">تفعيل اهتزاز الهاتف عند رصد تسبيحة</p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => setVibrationEnabled(!vibrationEnabled)}
+                    className={`w-12 h-6 rounded-full transition-colors relative ${vibrationEnabled ? 'bg-gold' : 'bg-gray-700'}`}
+                  >
+                    <motion.div 
+                      animate={{ x: vibrationEnabled ? 24 : 4 }}
+                      className="absolute top-1 left-0 w-4 h-4 bg-white rounded-full shadow-sm"
+                    />
+                  </button>
+                </div>
+
+                {/* Developer Mode Toggle */}
+                <div className="bg-white/5 p-4 rounded-2xl border border-white/5 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-gold/10 rounded-xl flex items-center justify-center">
+                      <Eye className="text-gold" size={20} />
+                    </div>
+                    <div>
+                      <p className="font-medium">وضع المطور</p>
+                      <p className="text-xs text-gray-500">إظهار أدوات التشخيص وسجل الأحداث</p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      setDeveloperMode(!developerMode);
+                      if (developerMode) setShowDebug(false);
+                    }}
+                    className={`w-12 h-6 rounded-full transition-colors relative ${developerMode ? 'bg-gold' : 'bg-gray-700'}`}
+                  >
+                    <motion.div 
+                      animate={{ x: developerMode ? 24 : 4 }}
+                      className="absolute top-1 left-0 w-4 h-4 bg-white rounded-full shadow-sm"
+                    />
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showCustomization && (
+          <>
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowCustomization(false)}
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
+            />
+            <motion.div 
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              className="fixed bottom-0 left-0 right-0 bg-card-bg rounded-t-[40px] z-50 p-8 max-h-[80vh] overflow-y-auto border-t border-white/10"
+            >
+              <div className="flex justify-between items-center mb-8">
+                <h2 className="text-xl font-bold">تخصيص الأذكار</h2>
+                <button onClick={() => setShowCustomization(false)} className="p-2 bg-white/5 rounded-full">
                   <X size={20} />
                 </button>
               </div>
@@ -580,7 +952,7 @@ export default function App() {
                   <span>إضافة ذكر جديد</span>
                 </button>
               </div>
-              <button onClick={() => { setDhikrs(INITIAL_DHIKRS); setShowSettings(false); }} className="w-full flex items-center justify-center gap-2 text-gray-500 text-sm hover:text-white">
+              <button onClick={() => { setDhikrs(INITIAL_DHIKRS); setShowCustomization(false); }} className="w-full flex items-center justify-center gap-2 text-gray-500 text-sm hover:text-white">
                 <RotateCcw size={16} />
                 <span>استعادة الإعدادات الافتراضية</span>
               </button>
@@ -633,6 +1005,47 @@ export default function App() {
               <div className="flex gap-4">
                 <button onClick={handleReset} className="flex-1 bg-red-500 text-white font-bold py-4 rounded-2xl">نعم، تصفير</button>
                 <button onClick={() => setShowResetConfirm(false)} className="flex-1 bg-white/5 font-bold py-4 rounded-2xl">إلغاء</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showVoskPrompt && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/80 backdrop-blur-sm">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-card-bg border border-white/10 rounded-3xl p-6 w-full max-w-sm text-center space-y-6"
+            >
+              <div className="w-16 h-16 bg-gold/20 rounded-full flex items-center justify-center mx-auto">
+                <WifiOff className="text-gold" size={32} />
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-xl font-bold text-white">تحميل محرك الأوفلاين</h3>
+                <p className="text-gray-400 text-sm leading-relaxed">
+                  لتتمكن من التسبيح بدون إنترنت، يحتاج التطبيق لتحميل موديل اللغة العربية (حوالي 50 ميجابايت). سيتم التحميل لمرة واحدة فقط.
+                </p>
+              </div>
+              <div className="flex flex-col gap-3">
+                <button
+                  onClick={() => {
+                    setShowVoskPrompt(false);
+                    initVoskModel();
+                    setIsListening(true);
+                  }}
+                  className="w-full py-3 bg-gold text-dark-bg font-bold rounded-xl hover:bg-gold/90 transition-colors"
+                >
+                  موافق، ابدأ التحميل
+                </button>
+                <button
+                  onClick={() => setShowVoskPrompt(false)}
+                  className="w-full py-3 bg-white/5 text-white font-medium rounded-xl hover:bg-white/10 transition-colors"
+                >
+                  إلغاء
+                </button>
               </div>
             </motion.div>
           </div>

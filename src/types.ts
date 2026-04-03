@@ -1,3 +1,5 @@
+export type RecognitionMode = 'google' | 'vosk' | 'auto';
+
 export interface Dhikr {
   id: string;
   text: string;
@@ -14,7 +16,7 @@ export const INITIAL_DHIKRS: Dhikr[] = [
     count: 0,
     target: 33,
     color: '#2DD4BF', // Teal
-    keywords: ['سبحان الله', 'سبحان لله', 'سبحان', 'سوبحان الله', 'سوبحان']
+    keywords: ['سبحان الله', 'سبحان لله', 'سبحان', 'سوبحان الله', 'سوبحان', 'سبحان ال']
   },
   {
     id: '2',
@@ -22,7 +24,7 @@ export const INITIAL_DHIKRS: Dhikr[] = [
     count: 0,
     target: 33,
     color: '#FACC15', // Yellow
-    keywords: ['الحمد لله', 'الحمدلله', 'الحمد لله رب العالمين', 'الحمد', 'المد لله']
+    keywords: ['الحمد لله', 'الحمدلله', 'الحمد لله رب العالمين', 'الحمد', 'المد لله', 'الحمد لله']
   },
   {
     id: '3',
@@ -30,7 +32,7 @@ export const INITIAL_DHIKRS: Dhikr[] = [
     count: 0,
     target: 33,
     color: '#34D399', // Emerald
-    keywords: ['الله أكبر', 'الله اكبر', 'اكبر', 'أكبر', 'الله كبر']
+    keywords: ['الله أكبر', 'الله اكبر', 'اكبر', 'أكبر', 'الله كبر', 'الله كبر']
   },
   {
     id: '4',
@@ -38,6 +40,6 @@ export const INITIAL_DHIKRS: Dhikr[] = [
     count: 0,
     target: 100,
     color: '#38BDF8', // Sky
-    keywords: ['لا إله إلا الله', 'لا اله الا الله', 'لا اله إلا الله', 'لا إله الا الله', 'توحيد', 'لا اله']
+    keywords: ['لا إله إلا الله', 'لا اله الا الله', 'لا اله إلا الله', 'لا إله الا الله', 'لا اله الا الله وحده', 'لا اله الا الله وحده لا شريك له']
   }
 ];

@@ -25,7 +25,6 @@ export default function App() {
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [interimTranscript, setInterimTranscript] = useState('');
-  const [audioLevel, setAudioLevel] = useState<number[]>(new Array(5).fill(0));
   const [showSettings, setShowSettings] = useState(false);
   const [showCustomization, setShowCustomization] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
@@ -45,6 +44,7 @@ export default function App() {
     return (saved as RecognitionMode) || 'auto';
   });
   const [activeEngine, setActiveEngine] = useState<'google' | 'vosk' | null>(null);
+  const wakeLockRef = useRef<any>(null);
   const [debugInfo, setDebugInfo] = useState({
     status: 'متوقف',
     lastEvent: 'لا يوجد',
@@ -53,8 +53,6 @@ export default function App() {
   });
 
   const audioContextRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const animationFrameRef = useRef<number | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const recognitionRef = useRef<any>(null);
   const modelRef = useRef<any>(null);
@@ -81,7 +79,13 @@ export default function App() {
   });
 
   const stopAllEngines = useCallback(() => {
-    try { recognitionRef.current?.stop(); } catch (e) {}
+    if (recognitionRef.current) {
+      try { 
+        recognitionRef.current.onend = null;
+        recognitionRef.current.stop(); 
+      } catch (e) {}
+      recognitionRef.current = null;
+    }
     if (processorRef.current) {
       processorRef.current.disconnect();
       processorRef.current = null;
@@ -93,6 +97,10 @@ export default function App() {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop());
       streamRef.current = null;
+    }
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+      try { audioContextRef.current.close(); } catch (e) {}
+      audioContextRef.current = null;
     }
   }, []);
 
@@ -112,14 +120,6 @@ export default function App() {
     n = n.replace(/[^\u0621-\u064A\s]/g, ' ');
     // Collapse spaces
     n = n.replace(/\s+/g, ' ').trim();
-    
-    // Tokenize common phrases for robust matching
-    n = n.replace(/لا اله/g, 'لااله');
-    n = n.replace(/الا الله/g, 'الاالله');
-    n = n.replace(/لااله الاالله/g, 'لاالهالاالله');
-    n = n.replace(/سبحان الله/g, 'سبحانالله');
-    n = n.replace(/الحمد لله/g, 'الحمدلله');
-    n = n.replace(/الله اكبر/g, 'اللهاكبر');
     
     return n;
   };
@@ -182,7 +182,7 @@ export default function App() {
     lastProcessedTextRef.current = normalized;
 
     const now = Date.now();
-    const COOLDOWN = 300; // Balanced cooldown for speed and accuracy
+    const COOLDOWN = 800; // ms between counts of the same dhikr
 
     addToLog(`🎤 ${source}: ${text.slice(-20)}...`);
     
@@ -194,10 +194,9 @@ export default function App() {
         const normKw = normalizeArabic(kw);
         if (!normKw || normKw.length < 2) return;
 
-        // Optimized matching: Use aggressive normalization for speed, 
-        // but ensure we match the phrase correctly
+        // Use word boundaries simulation for Arabic
         const escapedKw = normKw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const regex = new RegExp(escapedKw, 'g');
+        const regex = new RegExp(`(^|\\s)${escapedKw}(\\s|$)`, 'g');
         
         const matches = (normalized.match(regex) || []).length;
         if (matches > maxMatchesInCurrent) maxMatchesInCurrent = matches;
@@ -208,23 +207,13 @@ export default function App() {
       if (maxMatchesInCurrent > previousMax) {
         const lastTime = lastCountTimeRef.current[dhikr.id] || 0;
         
-        // Only increment if we haven't counted this dhikr too recently
-        // This helps with "stuttering" transcripts like "سبحان سبحان الله"
+        // Update session count immediately to prevent re-triggering on interim results
+        sessionCountsRef.current[dhikr.id] = maxMatchesInCurrent;
+
         if (now - lastTime > COOLDOWN) {
-          const diff = maxMatchesInCurrent - previousMax;
-          
-          // Logic: If the transcript suddenly has many more matches, 
-          // it's likely an engine jump or stutter. We count at most 1 per update
-          // unless the jump is very large (e.g. user was silent for a long time)
-          const incrementAmount = diff > 0 ? 1 : 0;
-          
-          if (incrementAmount > 0) {
-            handleIncrement(dhikr.id);
-            addToLog(`✨ تم عد: ${dhikr.text}`);
-            lastCountTimeRef.current[dhikr.id] = now;
-            // Update session count to reflect we've handled this many matches
-            sessionCountsRef.current[dhikr.id] = previousMax + incrementAmount;
-          }
+          handleIncrement(dhikr.id);
+          addToLog(`✨ تم عد: ${dhikr.text}`);
+          lastCountTimeRef.current[dhikr.id] = now;
         }
       }
     });
@@ -285,8 +274,8 @@ export default function App() {
         let currentInterim = '';
         for (let i = 0; i < event.results.length; ++i) {
           const part = event.results[i][0].transcript;
-          fullTranscript += part;
-          if (!event.results[i].isFinal) currentInterim += part;
+          fullTranscript += (i > 0 ? ' ' : '') + part;
+          if (!event.results[i].isFinal) currentInterim += (currentInterim ? ' ' : '') + part;
         }
         setTranscript(fullTranscript);
         setInterimTranscript(currentInterim);
@@ -294,14 +283,30 @@ export default function App() {
       };
 
       recognitionRef.current = recognition;
-      try { recognition.start(); } catch (e) {}
-    } else {
-      // Cleanup if not active
+      
+      // Small delay to ensure previous instance is fully cleaned up by the browser
+      const startTimeout = setTimeout(() => {
+        if (isListening && activeEngine === 'google' && recognitionRef.current === recognition) {
+          try { 
+            recognition.start(); 
+          } catch (e) {
+            addToLog(`❌ فشل تشغيل محرك "بإنترنت": ${e.message}`);
+          }
+        }
+      }, 100);
+
+      return () => clearTimeout(startTimeout);
+    }
+
+    return () => {
       if (recognitionRef.current) {
-        try { recognitionRef.current.stop(); } catch (e) {}
+        try { 
+          recognitionRef.current.onend = null;
+          recognitionRef.current.stop(); 
+        } catch (e) {}
         recognitionRef.current = null;
       }
-    }
+    };
   }, [isListening, activeEngine, processTranscript]);
 
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -423,6 +428,23 @@ export default function App() {
     if (isListening && activeEngine === 'vosk' && modelReady) {
       startVosk();
     }
+
+    return () => {
+      if (activeEngine === 'vosk') {
+        if (processorRef.current) {
+          processorRef.current.disconnect();
+          processorRef.current = null;
+        }
+        if (recognizerRef.current) {
+          recognizerRef.current.remove();
+          recognizerRef.current = null;
+        }
+        if (streamRef.current) {
+          streamRef.current.getTracks().forEach(track => track.stop());
+          streamRef.current = null;
+        }
+      }
+    };
   }, [isListening, activeEngine, modelReady, processTranscript]);
 
   // Engine Switching Logic
@@ -430,6 +452,7 @@ export default function App() {
     if (!isListening) {
       stopAllEngines();
       setActiveEngine(null);
+      setDebugInfo(prev => ({ ...prev, status: 'متوقف', lastEvent: 'stop_all' }));
       return;
     }
 
@@ -460,7 +483,19 @@ export default function App() {
     }
   }, [isListening, recognitionMode, isOnline, modelReady, modelLoading, stopAllEngines]);
 
-  const toggleListening = () => {
+  // Keep-alive check
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (isListening && !activeEngine && !modelLoading) {
+        addToLog('🛠️ محاولة استعادة المحرك...');
+        // This will trigger the Engine Switching Logic useEffect
+        setIsOnline(navigator.onLine);
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [isListening, activeEngine, modelLoading]);
+
+  const toggleListening = async () => {
     if (isListening) {
       setIsListening(false);
       setInterimTranscript('');
@@ -468,7 +503,43 @@ export default function App() {
       lastProcessedTextRef.current = '';
       sessionCountsRef.current = {};
       lastResultsLengthRef.current = 0;
+      
+      if (wakeLockRef.current) {
+        try { await wakeLockRef.current.release(); } catch (e) {}
+        wakeLockRef.current = null;
+      }
+      if (navigator.vibrate) navigator.vibrate(50);
     } else {
+      // Try to acquire wake lock
+      if ('wakeLock' in navigator) {
+        try {
+          // Check if permissions API is available to query wake lock
+          let canRequest = true;
+          if ((navigator as any).permissions) {
+            try {
+              const status = await (navigator as any).permissions.query({ name: 'screen-wake-lock' });
+              if (status.state === 'denied') canRequest = false;
+            } catch (e) {
+              // Permission query not supported for this name, proceed to try-catch request
+            }
+          }
+
+          if (canRequest) {
+            wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+            addToLog('💡 تم تفعيل وضع منع انطفاء الشاشة');
+          }
+        } catch (err: any) {
+          // Only log to console if it's not a policy error (which is expected in some iframes)
+          if (err.name !== 'NotAllowedError' && !err.message.includes('permissions policy')) {
+            console.error('Wake Lock failed:', err);
+          } else {
+            addToLog('⚠️ منع انطفاء الشاشة غير متاح في هذا المتصفح');
+          }
+        }
+      }
+
+      if (navigator.vibrate) navigator.vibrate([50, 30, 50]);
+
       // Check if we need Vosk and if it's ready
       const willUseVosk = recognitionMode === 'vosk' || (recognitionMode === 'auto' && !isOnline);
       if (willUseVosk && !modelReady) {
@@ -483,60 +554,6 @@ export default function App() {
       }
     }
   };
-
-  // Audio Visualization Logic
-  const startVisualizer = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-      
-      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const analyser = audioContext.createAnalyser();
-      const source = audioContext.createMediaStreamSource(stream);
-      
-      source.connect(analyser);
-      analyser.fftSize = 64;
-      
-      audioContextRef.current = audioContext;
-      analyserRef.current = analyser;
-      
-      const bufferLength = analyser.frequencyBinCount;
-      const dataArray = new Uint8Array(bufferLength);
-      
-      const updateVisualizer = () => {
-        if (!analyserRef.current) return;
-        analyserRef.current.getByteFrequencyData(dataArray);
-        
-        const levels = [];
-        for (let i = 0; i < 5; i++) {
-          const index = Math.floor((i / 5) * bufferLength);
-          levels.push(dataArray[index] / 255);
-        }
-        setAudioLevel(levels);
-        animationFrameRef.current = requestAnimationFrame(updateVisualizer);
-      };
-      
-      updateVisualizer();
-    } catch (err) {
-      console.error("Error accessing microphone for visualization:", err);
-    }
-  };
-
-  const stopVisualizer = () => {
-    if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
-    if (streamRef.current) streamRef.current.getTracks().forEach(track => track.stop());
-    if (audioContextRef.current) audioContextRef.current.close();
-    setAudioLevel(new Array(5).fill(0));
-  };
-
-  useEffect(() => {
-    // Disable visualizer when listening to avoid microphone conflicts on some devices
-    if (isListening) {
-      stopVisualizer();
-    } else {
-      // No-op, visualizer is only started manually or via other logic
-    }
-  }, [isListening]);
 
   useEffect(() => {
     localStorage.setItem('dhikrs', JSON.stringify(dhikrs));
@@ -687,6 +704,12 @@ export default function App() {
                     مسح السجل
                   </button>
                 </div>
+                <button 
+                  onClick={(e) => { e.stopPropagation(); setIsListening(false); stopAllEngines(); }}
+                  className="w-full mt-2 bg-red-500/20 text-red-400 border border-red-500/30 px-2 py-1 rounded text-[8px] hover:bg-red-500/30"
+                >
+                  إيقاف إجباري للمحرك
+                </button>
               </div>
             </motion.div>
           )}

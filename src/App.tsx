@@ -705,9 +705,9 @@ export default function App() {
           )}
         </div>
         
-        <div className="bg-card-bg/40 px-6 py-3 rounded-2xl border border-white/5 backdrop-blur-md shadow-xl">
-          <h1 className="text-gold text-xl md:text-2xl font-black tracking-tight text-center leading-tight">
-            المسبحة الصوتية <span className="text-white/90 font-medium block text-xs mt-1 tracking-[0.2em] uppercase opacity-60">الذكية</span>
+        <div className="bg-card-bg/40 px-5 py-2.5 rounded-2xl border border-white/5 backdrop-blur-md shadow-xl">
+          <h1 className="text-gold text-lg md:text-xl font-black tracking-tight text-center leading-tight">
+            المسبحة الصوتية <span className="text-white/90 font-medium block text-[10px] mt-1 tracking-[0.2em] uppercase opacity-60">الذكية</span>
           </h1>
         </div>
 
@@ -802,8 +802,16 @@ export default function App() {
             className="bg-card-bg rounded-3xl p-6 flex flex-col items-center justify-center border border-white/5 relative group h-48 cursor-pointer"
           >
             <div className="absolute top-4 right-4 w-2 h-2 rounded-full" style={{ backgroundColor: dhikr.color }} />
-            <p className="text-4xl font-bold mb-4" style={{ color: dhikr.color }}>{formatNumber(dhikr.count)}</p>
-            <p className="text-lg font-medium text-gray-300">{dhikr.text}</p>
+            <div className="h-14 flex items-end justify-center pb-2">
+              <p className="text-4xl font-bold leading-none" style={{ color: dhikr.color }}>{formatNumber(dhikr.count)}</p>
+            </div>
+            <div className="h-16 flex items-start justify-center w-full pt-2">
+              <p className={`font-medium text-gray-300 text-center px-2 leading-snug line-clamp-3 ${
+                dhikr.text.length <= 15 ? 'text-sm' : 
+                dhikr.text.length <= 30 ? 'text-xs' : 
+                dhikr.text.length <= 50 ? 'text-[10px]' : 'text-[8px]'
+              }`}>{dhikr.text}</p>
+            </div>
             <div className="absolute bottom-4 right-0 w-full text-center text-[10px] text-gray-500">
               {formatNumber(dhikr.count)} / {formatNumber(dhikr.target)}
             </div>

@@ -32,25 +32,13 @@ jobs:
       - name: Generate Android Assets
         run: npx @capacitor/assets generate --android
 
-      - name: Install Android Platform
-        run: |
-          if [ ! -d "android" ]; then
-            npx cap add android
-          fi
-          npx cap sync android
-        
-      - name: Regenerate Gradle Wrapper
+      - name: Sync Android
+        run: npx cap sync android
+
+      - name: Clean Android Build
         run: |
           cd android
-          rm -f gradle/wrapper/gradle-wrapper.jar
-          gradle wrapper --gradle-version 8.13
-          chmod +x gradlew
-        
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: wrapper
-          build-root-directory: android
+          ./gradlew clean
 
       - name: Build with Gradle
         run: |

@@ -7,6 +7,7 @@ export interface Dhikr {
   target: number;
   color: string;
   keywords: string[];
+  lastIncrement?: number;
 }
 
 export const INITIAL_DHIKRS: Dhikr[] = [

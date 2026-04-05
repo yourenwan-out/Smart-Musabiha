@@ -746,7 +746,7 @@ export default function App() {
           </button>
         </div>
         
-        <div className="bg-card-bg/40 px-5 py-2.5 rounded-xl border border-white/5 backdrop-blur-md shadow-lg">
+        <div className="bg-card-bg/40 px-7 py-3.5 rounded-xl border border-white/5 backdrop-blur-md shadow-lg">
           <h1 className="text-gold text-xs font-bold tracking-tight text-center leading-tight">
             المسبحة الصوتية الذكية
           </h1>

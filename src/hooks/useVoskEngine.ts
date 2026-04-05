@@ -92,7 +92,7 @@ export const useVoskEngine = ({
         const source = audioContextRef.current.createMediaStreamSource(stream);
         
         const allKeywords = dhikrs.flatMap(d => [d.text, ...d.keywords]);
-        const uniqueWords = Array.from(new Set(allKeywords.flatMap(k => k.split(/\\s+/))));
+        const uniqueWords = Array.from(new Set(allKeywords.flatMap(k => k.split(/\s+/))));
         const grammar = JSON.stringify([...allKeywords, ...uniqueWords, "[unk]"]);
         
         const recognizer = new modelRef.current.KaldiRecognizer(audioContextRef.current.sampleRate, grammar);

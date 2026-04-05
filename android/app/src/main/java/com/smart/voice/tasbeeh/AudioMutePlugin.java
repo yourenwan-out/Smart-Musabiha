@@ -51,36 +51,59 @@ public class AudioMutePlugin extends Plugin {
 
     @PluginMethod
     public void unmute(PluginCall call) {
-        // Delay unmuting by 1 second to allow the beep to finish
-        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-            AudioManager audioManager = (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
-            if (audioManager != null) {
+        // Restore immediately — the delay is managed in JS (1500ms)
+        AudioManager audioManager = (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
+        if (audioManager != null) {
+            if (originalMusicVolume != -1) {
+                try {
+                    audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, originalMusicVolume, 0);
+                } catch (Exception e) {
+                    Log.e("AudioMute", "Error unmuting MUSIC stream", e);
+                }
+                originalMusicVolume = -1;
+            }
+            if (originalSystemVolume != -1) {
+                try {
+                    audioManager.setStreamVolume(AudioManager.STREAM_SYSTEM, originalSystemVolume, 0);
+                } catch (Exception e) {
+                    Log.e("AudioMute", "Error unmuting SYSTEM stream", e);
+                }
+                originalSystemVolume = -1;
+            }
+            if (originalNotificationVolume != -1) {
+                try {
+                    audioManager.setStreamVolume(AudioManager.STREAM_NOTIFICATION, originalNotificationVolume, 0);
+                } catch (Exception e) {
+                    Log.e("AudioMute", "Error unmuting NOTIFICATION stream", e);
+                }
+                originalNotificationVolume = -1;
+            }
+        }
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void forceUnmute(PluginCall call) {
+        // Emergency restore - called on app crash or unmount
+        AudioManager audioManager = (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
+        if (audioManager != null) {
+            try {
                 if (originalMusicVolume != -1) {
-                    try {
-                        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, originalMusicVolume, 0);
-                    } catch (Exception e) {
-                        Log.e("AudioMute", "Error unmuting MUSIC stream", e);
-                    }
+                    audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, originalMusicVolume, 0);
                     originalMusicVolume = -1;
                 }
                 if (originalSystemVolume != -1) {
-                    try {
-                        audioManager.setStreamVolume(AudioManager.STREAM_SYSTEM, originalSystemVolume, 0);
-                    } catch (Exception e) {
-                        Log.e("AudioMute", "Error unmuting SYSTEM stream", e);
-                    }
+                    audioManager.setStreamVolume(AudioManager.STREAM_SYSTEM, originalSystemVolume, 0);
                     originalSystemVolume = -1;
                 }
                 if (originalNotificationVolume != -1) {
-                    try {
-                        audioManager.setStreamVolume(AudioManager.STREAM_NOTIFICATION, originalNotificationVolume, 0);
-                    } catch (Exception e) {
-                        Log.e("AudioMute", "Error unmuting NOTIFICATION stream", e);
-                    }
+                    audioManager.setStreamVolume(AudioManager.STREAM_NOTIFICATION, originalNotificationVolume, 0);
                     originalNotificationVolume = -1;
                 }
+            } catch (Exception e) {
+                Log.e("AudioMute", "Error in forceUnmute", e);
             }
-            call.resolve();
-        }, 1000); // 1000ms delay
+        }
+        call.resolve();
     }
 }

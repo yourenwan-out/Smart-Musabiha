@@ -23,3 +23,17 @@ export const unmuteAudio = async () => {
     }
   }
 };
+
+export const forceUnmuteAudio = async () => {
+  if (isNativePlatform()) {
+    try {
+      if (AudioMute.forceUnmute) {
+        await AudioMute.forceUnmute();
+      } else {
+        await AudioMute.unmute(); // fallback if not generated yet
+      }
+    } catch (e) {
+      console.error('Failed to force unmute audio:', e);
+    }
+  }
+};

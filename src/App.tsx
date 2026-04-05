@@ -4,7 +4,7 @@ import { Settings, Edit3, RotateCcw } from 'lucide-react';
 
 import { Dhikr, RecognitionMode } from './types';
 import { normalizeArabic } from './utils/arabicUtils';
-import { muteAudio, unmuteAudio, isNativePlatform } from './utils/capacitorUtils';
+import { muteAudio, unmuteAudio, isNativePlatform, forceUnmuteAudio } from './utils/capacitorUtils';
 
 // Hooks
 import { useDhikrState } from './hooks/useDhikrState';
@@ -96,8 +96,8 @@ export default function App() {
       keywords.forEach(kw => {
         const normKw = normalizeArabic(kw);
         if (!normKw || normKw.length < 2) return;
-        const flexibleKw = normKw.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&').replace(/\\s+/g, '\\\\s*');
-        const regex = new RegExp(`(^|\\\\s)${flexibleKw}(\\\\s|$)`, 'g');
+        const flexibleKw = normKw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s*');
+        const regex = new RegExp(`(^|\\s)${flexibleKw}(\\s|$)`, 'g');
         const matches = (normalized.match(regex) || []).length;
         if (matches > maxMatchesInCurrent) maxMatchesInCurrent = matches;
       });
@@ -122,7 +122,7 @@ export default function App() {
     if (shouldMute) {
       if (unmuteTimeoutRef.current) clearTimeout(unmuteTimeoutRef.current);
       if (immediate) {
-        unmuteAudio();
+        forceUnmuteAudio();
       } else {
         unmuteTimeoutRef.current = setTimeout(() => { unmuteAudio(); }, 1500);
       }
@@ -140,10 +140,14 @@ export default function App() {
     requestWakeLock(addToLog);
   }, [recognitionMode, isOnline, requestWakeLock, addToLog]);
 
+  // Fail-safe cleanup
   useEffect(() => {
+    const handleBeforeUnload = () => forceUnmuteAudio();
+    window.addEventListener('beforeunload', handleBeforeUnload);
     return () => {
       if (isNativePlatform() && unmuteTimeoutRef.current) clearTimeout(unmuteTimeoutRef.current);
-      unmuteAudio();
+      forceUnmuteAudio();
+      window.removeEventListener('beforeunload', handleBeforeUnload);
     };
   }, []);
 
@@ -318,7 +322,7 @@ export default function App() {
             onClose={() => setEditingDhikr(null)}
             onSave={() => {
               const baseText = editingDhikr.text.trim();
-              const words = baseText.split(/\\s+/);
+              const words = baseText.split(/\s+/);
               const keywords = Array.from(new Set([
                 baseText, ...words, baseText.replace(/\\s+/g, ''), baseText.replace(/ة/g, 'ه'), baseText.replace(/ه/g, 'ة'), baseText.replace(/[أإآ]/g, 'ا')
               ])).filter(k => k.length > 1);

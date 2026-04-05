@@ -414,7 +414,7 @@ export default function App() {
       }
       setModelLoading(false);
       setModelProgress(0);
-      setIsListening(false);
+      stopListening(true);
     }
   }, [modelReady, modelLoading, isListening]);
 
@@ -472,7 +472,7 @@ export default function App() {
         addToLog('✅ محرك "بدون إنترنت" بدأ العمل');
       } catch (err: any) {
         addToLog(`❌ خطأ تشغيل محرك "بدون إنترنت": ${err.message}`);
-        setIsListening(false);
+        stopListening(true);
       }
     };
 
@@ -525,7 +525,7 @@ export default function App() {
         if (!modelLoading) {
           stopAllEngines();
           setShowVoskPrompt(true);
-          setIsListening(false);
+        stopListening();
         }
       } else {
         stopAllEngines();
@@ -534,20 +534,48 @@ export default function App() {
     }
   }, [isListening, recognitionMode, isOnline, modelReady, modelLoading, stopAllEngines]);
 
-  useEffect(() => {
-    if (isNative) {
-      if (isListening && activeEngine === 'google') {
-        AudioMute.mute().catch(console.error);
-      } else {
+  const unmuteTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const startListening = useCallback(() => {
+    setIsListening(true);
+    const shouldMute = isNative && (recognitionMode === 'google' || (recognitionMode === 'auto' && isOnline));
+    if (shouldMute) {
+      if (unmuteTimeoutRef.current) {
+        clearTimeout(unmuteTimeoutRef.current);
+        unmuteTimeoutRef.current = null;
+      }
+      AudioMute.mute().catch(console.error);
+    }
+  }, [isNative, recognitionMode, isOnline]);
+
+  const stopListening = useCallback((immediate = false) => {
+    setIsListening(false);
+    const shouldMute = isNative && (recognitionMode === 'google' || (recognitionMode === 'auto' && isOnline));
+    if (shouldMute) {
+      if (unmuteTimeoutRef.current) {
+        clearTimeout(unmuteTimeoutRef.current);
+        unmuteTimeoutRef.current = null;
+      }
+      if (immediate) {
         AudioMute.unmute().catch(console.error);
+      } else {
+        unmuteTimeoutRef.current = setTimeout(() => {
+          AudioMute.unmute().catch(console.error);
+        }, 1500);
       }
     }
+  }, [isNative, recognitionMode, isOnline]);
+
+  useEffect(() => {
     return () => {
       if (isNative) {
+        if (unmuteTimeoutRef.current) {
+          clearTimeout(unmuteTimeoutRef.current);
+        }
         AudioMute.unmute().catch(console.error);
       }
     };
-  }, [isListening, activeEngine, isNative]);
+  }, [isNative]);
 
   // Keep-alive check
   useEffect(() => {
@@ -563,7 +591,7 @@ export default function App() {
 
   const toggleListening = async () => {
     if (isListening) {
-      setIsListening(false);
+      stopListening();
       setInterimTranscript('');
       setTranscript('');
       lastProcessedTextRef.current = '';
@@ -625,7 +653,7 @@ export default function App() {
       if (willUseVosk && !modelReady) {
         setShowVoskPrompt(true);
       } else {
-        setIsListening(true);
+        startListening();
         setTranscript('');
         setInterimTranscript('');
         lastProcessedTextRef.current = '';
@@ -705,41 +733,27 @@ export default function App() {
     setIsAddingNew(false);
   };
 
-  const titleLongPressRef = useRef<NodeJS.Timeout | null>(null);
-
-  const startLongPress = () => {
-    titleLongPressRef.current = setTimeout(() => {
-      setShowDebug(prev => !prev);
-    }, 1000);
-  };
-
-  const endLongPress = () => {
-    if (titleLongPressRef.current) {
-      clearTimeout(titleLongPressRef.current);
-    }
-  };
-
   return (
     <div className="min-h-screen bg-dark-bg text-white font-sans flex flex-col p-6 dir-rtl" dir="rtl">
       <header className="flex items-center justify-between gap-4 mb-10">
         <div className="flex-1 flex justify-start">
-          <button 
-            className="w-auto h-10 px-3 rounded-xl transition-all flex items-center justify-center border bg-card-bg/40 text-gray-400 border-white/5 hover:bg-white/5 hover:text-white"
-          >
-            <span className="text-xs font-bold">إدعمنا</span>
-          </button>
+          {developerMode && (
+            <button 
+              onClick={() => setShowDebug(!showDebug)}
+              className={`w-12 h-12 rounded-2xl transition-all flex items-center justify-center border ${
+                showDebug 
+                  ? 'bg-gold text-dark-bg border-gold shadow-lg shadow-gold/20' 
+                  : 'bg-card-bg/40 text-gray-500 border-white/5 hover:bg-white/5'
+              }`}
+            >
+              <Eye size={20} />
+            </button>
+          )}
         </div>
         
-        <div className="bg-card-bg/40 px-4 py-2 rounded-xl border border-white/5 backdrop-blur-md shadow-xl">
-          <h1 
-            onTouchStart={startLongPress}
-            onTouchEnd={endLongPress}
-            onMouseDown={startLongPress}
-            onMouseUp={endLongPress}
-            onMouseLeave={endLongPress}
-            className="text-gold text-sm md:text-base font-black tracking-tight text-center leading-tight cursor-pointer"
-          >
-            المسبحة الصوتية <span className="text-white/90 font-medium block text-[8px] mt-0.5 tracking-[0.2em] uppercase opacity-60">الذكية</span>
+        <div className="bg-card-bg/40 px-5 py-2.5 rounded-2xl border border-white/5 backdrop-blur-md shadow-xl">
+          <h1 className="text-gold text-lg md:text-xl font-black tracking-tight text-center leading-tight">
+            المسبحة الصوتية <span className="text-white/90 font-medium block text-[10px] mt-1 tracking-[0.2em] uppercase opacity-60">الذكية</span>
           </h1>
         </div>
 
@@ -804,7 +818,7 @@ export default function App() {
                   </button>
                 </div>
                 <button 
-                  onClick={(e) => { e.stopPropagation(); setIsListening(false); stopAllEngines(); }}
+                  onClick={(e) => { e.stopPropagation(); stopListening(true); stopAllEngines(); }}
                   className="w-full mt-2 bg-red-500/20 text-red-400 border border-red-500/30 px-2 py-1 rounded text-[8px] hover:bg-red-500/30"
                 >
                   إيقاف إجباري للمحرك
@@ -976,9 +990,9 @@ export default function App() {
                       <button
                         key={mode.id}
                         onClick={() => setRecognitionMode(mode.id as RecognitionMode)}
-                        disabled={mode.id === 'vosk'}
+                        disabled={mode.id === 'vosk' && !developerMode}
                         className={`flex items-start gap-3 p-3 rounded-xl border transition-all text-right ${
-                          mode.id === 'vosk' 
+                          (mode.id === 'vosk' && !developerMode)
                             ? 'opacity-50 cursor-not-allowed bg-gray-800 border-transparent text-gray-500'
                             : recognitionMode === mode.id 
                               ? 'bg-gold/10 border-gold text-gold' 
@@ -1032,7 +1046,12 @@ export default function App() {
                   <button 
                     onClick={() => {
                       setDeveloperMode(!developerMode);
-                      if (developerMode) setShowDebug(false);
+                      if (developerMode) {
+                        setShowDebug(false);
+                        if (recognitionMode === 'vosk') {
+                          setRecognitionMode('auto');
+                        }
+                      }
                     }}
                     className={`w-12 h-6 rounded-full transition-colors relative ${developerMode ? 'bg-gold' : 'bg-gray-700'}`}
                   >
@@ -1177,7 +1196,7 @@ export default function App() {
                   onClick={() => {
                     setShowVoskPrompt(false);
                     initVoskModel();
-                    setIsListening(true);
+                    startListening();
                   }}
                   className="w-full py-3 bg-gold text-dark-bg font-bold rounded-xl hover:bg-gold/90 transition-colors"
                 >

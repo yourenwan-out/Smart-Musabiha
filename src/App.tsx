@@ -733,12 +733,11 @@ export default function App() {
     else setDhikrs(prev => prev.map(d => d.id === finalDhikr.id ? finalDhikr : d));
     setEditingDhikr(null);
     setIsAddingNew(false);
-    if (editingSource === 'settings') setShowCustomization(false);
     setEditingSource(null);
   };
 
   return (
-    <div className="min-h-screen bg-dark-bg text-white font-sans flex flex-col p-6 dir-rtl" dir="rtl">
+    <div className="min-h-screen bg-dark-bg text-white font-sans flex flex-col p-6 pt-[env(safe-area-inset-top)] dir-rtl" dir="rtl">
       <header className="sticky top-0 z-50 bg-dark-bg/90 backdrop-blur-md flex items-center justify-between gap-4 py-4 -mx-6 px-6 mb-10">
         <div className="flex-1 flex justify-start">
           <button className="w-10 h-10 bg-card-bg/40 backdrop-blur-md rounded-xl flex items-center justify-center border border-white/5 text-white text-[10px] font-bold hover:bg-white/10 transition-all">
@@ -1123,7 +1122,7 @@ export default function App() {
       <AnimatePresence>
         {editingDhikr && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center p-6">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => { if (editingSource === 'settings') setShowCustomization(false); setEditingDhikr(null); setIsAddingNew(false); setEditingSource(null); }} className="absolute inset-0 bg-black/80 backdrop-blur-md" />
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => { setEditingDhikr(null); setIsAddingNew(false); setEditingSource(null); }} className="absolute inset-0 bg-black/80 backdrop-blur-md" />
             <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="bg-card-bg p-8 rounded-[32px] w-full max-w-md relative z-10 border border-white/10">
               <h3 className="text-xl font-bold mb-6 text-center">{isAddingNew ? 'إضافة ذكر جديد' : 'تعديل الذكر'}</h3>
               <div className="space-y-6">
@@ -1145,7 +1144,7 @@ export default function App() {
                 </div>
                 <div className="flex gap-4 pt-4">
                   <button onClick={saveDhikr} disabled={!editingDhikr.text.trim()} className={`flex-1 font-bold py-4 rounded-2xl transition-colors ${editingDhikr.text.trim() ? 'bg-gold text-dark-bg' : 'bg-gray-700 text-gray-500 cursor-not-allowed'}`}>حفظ</button>
-                  <button onClick={() => { if (editingSource === 'settings') setShowCustomization(false); setEditingDhikr(null); setIsAddingNew(false); setEditingSource(null); }} className="flex-1 bg-white/5 font-bold py-4 rounded-2xl">إلغاء</button>
+                  <button onClick={() => { setEditingDhikr(null); setIsAddingNew(false); setEditingSource(null); }} className="flex-1 bg-white/5 font-bold py-4 rounded-2xl">إلغاء</button>
                 </div>
               </div>
             </motion.div>
